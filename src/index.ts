@@ -1,77 +1,8 @@
 import "dotenv/config"; // Ensure environment variables are loaded
-import { Agent, Mastra } from "@mastra/core";
-import { google } from "@ai-sdk/google";
-import { z } from "zod";
-
-const analyzeTranscript = {
-  id: "analyze-transcript",
-  description:
-    "Analyzes a meeting transcript to extract summary and action items",
-  inputSchema: z.object({
-    transcript: z.string().describe("The raw meeting transcript text"),
-  }),
-  execute: async ({ context }: { context: { transcript: string } }) => {
-    const { transcript } = context;
-
-    // Validate input
-    if (!transcript || transcript.trim().length < 50) {
-      return {
-        error:
-          "Transcript too short. Please provide a meaningful meeting transcript (at least 50 characters).",
-      };
-    }
-
-    // Return the transcript for the agent to analyze
-    return {
-      transcript,
-      length: transcript.length,
-      wordCount: transcript.split(/\s+/).length,
-    };
-  },
-};
-
-// agent
-const transcriptAgent = new Agent({
-  name: "Meeting Transcript Analyzer",
-  instructions: `You are a professional meeting analyst. Your task is to analyze meeting transcripts and provide:
-
-1. **Concise Summary**: A brief 2-3 paragraph summary of the meeting's main points
-2. **Action Items**: A clear list of action items extracted from the discussion
-
-Format your response EXACTLY as follows:
-
-## Meeting Summary
-[2-3 paragraphs summarizing the key discussion points, decisions made, and main topics covered]
-
-## Action Items
-- [ ] Action item 1 (if responsible person mentioned, include their name)
-- [ ] Action item 2
-- [ ] Action item 3
-
-## Key Decisions
-[List any important decisions made during the meeting]
-
-Be concise but comprehensive. Focus on actionable insights.`,
-
-  model: google("gemini-2.5-flash"),
-
-  tools: {
-    analyzeTranscript,
-  },
-});
-
-export const mastra = new Mastra({
-  agents: { transcriptAgent },
-  storage: undefined,
-});
-
-//dpcs
 import express from "express";
 import swaggerJsdoc from "swagger-jsdoc";
 import swaggerUi from "swagger-ui-express";
-
-const app = express();
-app.use(express.json());
+import { transcriptAgent } from "./mastra";
 
 // Swagger configuration
 const options = {
@@ -92,6 +23,9 @@ const options = {
   },
   apis: ["./src/index.ts"],
 };
+
+const app = express();
+app.use(express.json());
 
 const specs = swaggerJsdoc(options);
 
@@ -286,7 +220,7 @@ app.post("/api/a2a/transcript-analyzer", async (req, res) => {
       });
     }
 
-    // Generate the transcript summary using the agent
+    // Generate the transcript analysis using the agent
     const result = await transcriptAgent.generate(
       `Please analyze this meeting transcript:\n\n${userMessage}`,
       {
@@ -377,7 +311,9 @@ app.get("/health", (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log(`Meeting Transcript Analyzer Agent running on port ${PORT}`);
+  console.log(
+    `Meeting Transcript Analyzer A2A endpoint running on port ${PORT}`,
+  );
 });
 
 export default app;
