@@ -1,0 +1,37 @@
+{
+  "name": "meeting-transcript-analyzer",
+  "version": "1.0.0",
+  "description": "A2A Agent for analyzing meeting transcripts with Mastra",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch --require dotenv/config src/index.ts",
+    "build": "tsc",
+    "start": "node -r dotenv/config dist/index.js"
+  },
+  "keywords": [
+    "a2a",
+    "mastra",
+    "telex",
+    "meeting",
+    "transcript"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "@ai-sdk/google": "^2.0.25",
+    "@mastra/core": "^0.23.3",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.10.0",
+    "@types/swagger-jsdoc": "^6.0.4",
+    "@types/swagger-ui-express": "^4.1.8",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3"
+  }
+}
