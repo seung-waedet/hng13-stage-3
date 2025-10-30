@@ -2,6 +2,9 @@ import { Agent, Mastra } from "@mastra/core";
 import { google } from "@ai-sdk/google";
 import { z } from "zod";
 
+// ============================================
+// 1. CREATE THE TRANSCRIPT ANALYZER TOOL
+// ============================================
 const analyzeTranscript = {
   id: "analyze-transcript",
   description:
@@ -29,6 +32,9 @@ const analyzeTranscript = {
   },
 };
 
+// ============================================
+// 2. CREATE THE MASTRA AGENT
+// ============================================
 const transcriptAgent = new Agent({
   name: "Meeting Transcript Analyzer",
   instructions: `You are a professional meeting analyst. Your task is to analyze meeting transcripts and provide:
@@ -58,6 +64,9 @@ Be concise but comprehensive. Focus on actionable insights.`,
   },
 });
 
+// ============================================
+// 3. CREATE MASTRA INSTANCE
+// ============================================
 export const mastra = new Mastra({
   agents: { transcriptAgent },
   storage: undefined,
