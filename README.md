@@ -20,7 +20,7 @@ This agent accepts raw meeting transcripts and returns:
 ### 1. Clone and Install
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/seung-waedet/hng13-stage-3
 cd meeting-transcript-analyzer
 npm install
 ```
