@@ -67,7 +67,7 @@ Be concise but comprehensive. Focus on actionable insights.`,
 // ============================================
 // 3. CREATE MASTRA INSTANCE
 // ============================================
-export const mastra = new Mastra({
+const mastraInstance = new Mastra({
   agents: { transcriptAgent },
   storage: undefined,
   telemetry: {
@@ -76,6 +76,6 @@ export const mastra = new Mastra({
 });
 
 // Export the agent for other modules to use
-export { transcriptAgent };
+export { transcriptAgent, mastraInstance as mastra };
 
-export default mastra;
+export default mastraInstance;

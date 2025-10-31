@@ -2,7 +2,7 @@ import "dotenv/config"; // Ensure environment variables are loaded
 import express from "express";
 import swaggerJsdoc from "swagger-jsdoc";
 import swaggerUi from "swagger-ui-express";
-import { transcriptAgent } from "./mastra";
+import { transcriptAgent, mastra } from "./mastra";
 
 // Swagger configuration
 const options = {
