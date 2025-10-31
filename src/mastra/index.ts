@@ -70,6 +70,9 @@ Be concise but comprehensive. Focus on actionable insights.`,
 export const mastra = new Mastra({
   agents: { transcriptAgent },
   storage: undefined,
+  telemetry: {
+    enabled: false, // Disable telemetry to avoid the warning
+  },
 });
 
 // Export the agent for other modules to use
