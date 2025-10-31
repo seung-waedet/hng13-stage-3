@@ -71,7 +71,7 @@ const mastraInstance = new Mastra({
   agents: { transcriptAgent },
   storage: undefined,
   telemetry: {
-    enabled: false, // Disable telemetry to avoid the warning
+    enabled: true,
   },
 });
 
