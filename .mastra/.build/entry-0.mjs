@@ -8,8 +8,12 @@ const analyzeTranscript = {
   inputSchema: z.object({
     transcript: z.string().describe("The raw meeting transcript text")
   }),
-  execute: async ({ context }) => {
-    const { transcript } = context;
+  execute: async ({
+    context
+  }) => {
+    const {
+      transcript
+    } = context;
     if (!transcript || transcript.trim().length < 50) {
       return {
         error: "Transcript too short. Please provide a meaningful meeting transcript (at least 50 characters)."
@@ -48,15 +52,17 @@ Be concise but comprehensive. Focus on actionable insights.`,
     analyzeTranscript
   }
 });
-
 const mastra = new Mastra({
   agents: {
     transcriptAgent
   },
+  server: {
+    port: 4111
+  },
   telemetry: {
     enabled: false
-    // Disable telemetry
+    // Disable telemetry to avoid the bundling issue
   }
 });
 
-export { mastra as default, mastra };
+export { mastra, transcriptAgent };

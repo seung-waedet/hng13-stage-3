@@ -1,10 +1,6 @@
-import { Mastra } from "@mastra/core";
-import { transcriptAgent } from "./src/mastra/agents/transcript-agent";
+import { defineConfig } from "@mastra/core";
 
-export const mastra = new Mastra({
-  agents: {
-    transcriptAgent,
-  },
+export default defineConfig({
   server: {
     port: 4111,
   },
@@ -12,5 +8,3 @@ export const mastra = new Mastra({
     enabled: false,
   },
 });
-
-export default mastra;

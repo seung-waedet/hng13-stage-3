@@ -1,7 +1,6 @@
-var mastra$1 = mastra;
 const telemetry = {
   enabled: false
-  // Disable telemetry
+  // Disable telemetry to avoid the bundling issue
 };
 
-export { mastra$1 as default, telemetry };
+export { telemetry };

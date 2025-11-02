@@ -3,7 +3,7 @@ import { registerHook, AvailableHooks } from '@mastra/core/hooks';
 import { TABLE_EVALS } from '@mastra/core/storage';
 import { scoreTraces, scoreTracesWorkflow } from '@mastra/core/scores/scoreTraces';
 import { generateEmptyFromSchema, checkEvalStorageFields } from '@mastra/core/utils';
-import { Agent, Mastra } from '@mastra/core';
+import { Mastra, Agent } from '@mastra/core';
 import { google } from '@ai-sdk/google';
 import { z, ZodObject, ZodFirstPartyTypeKind } from 'zod';
 import crypto$1, { randomUUID } from 'crypto';
@@ -44,8 +44,12 @@ const analyzeTranscript = {
   inputSchema: z.object({
     transcript: z.string().describe("The raw meeting transcript text")
   }),
-  execute: async ({ context }) => {
-    const { transcript } = context;
+  execute: async ({
+    context
+  }) => {
+    const {
+      transcript
+    } = context;
     if (!transcript || transcript.trim().length < 50) {
       return {
         error: "Transcript too short. Please provide a meaningful meeting transcript (at least 50 characters)."
@@ -84,14 +88,16 @@ Be concise but comprehensive. Focus on actionable insights.`,
     analyzeTranscript
   }
 });
-
 const mastra = new Mastra({
   agents: {
     transcriptAgent
   },
+  server: {
+    port: 4111
+  },
   telemetry: {
     enabled: false
-    // Disable telemetry
+    // Disable telemetry to avoid the bundling issue
   }
 });
 
