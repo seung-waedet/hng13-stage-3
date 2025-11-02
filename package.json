@@ -19,6 +19,7 @@
   "dependencies": {
     "@ai-sdk/google": "^2.0.26",
     "@mastra/core": "^0.23.3",
+    "@mastra/libsql": "^0.16.1",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "mastra": "^0.17.7",

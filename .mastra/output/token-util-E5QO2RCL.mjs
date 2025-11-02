@@ -8,6 +8,7 @@ import '@mastra/core/utils';
 import '@mastra/core';
 import '@ai-sdk/google';
 import 'zod';
+import '@mastra/libsql';
 import 'crypto';
 import 'fs/promises';
 import 'https';

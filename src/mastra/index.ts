@@ -1,6 +1,7 @@
 import { Agent, Mastra } from "@mastra/core";
 import { google } from "@ai-sdk/google";
 import { z } from "zod";
+import { LibSQLStore } from "@mastra/libsql"; // For storage
 
 // ============================================
 // 1. CREATE THE TRANSCRIPT ANALYZER TOOL
@@ -77,6 +78,9 @@ export const mastra = new Mastra({
   telemetry: {
     enabled: false, // Disable telemetry to avoid the bundling issue
   },
+  storage: new LibSQLStore({
+    url: ":memory:", // In-memory storage for local testing (non-persistent)
+  }),
 });
 
 export { transcriptAgent };

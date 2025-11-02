@@ -6,6 +6,7 @@ import { generateEmptyFromSchema, checkEvalStorageFields } from '@mastra/core/ut
 import { Mastra, Agent } from '@mastra/core';
 import { google } from '@ai-sdk/google';
 import { z, ZodObject, ZodFirstPartyTypeKind } from 'zod';
+import { LibSQLStore } from '@mastra/libsql';
 import crypto$1, { randomUUID } from 'crypto';
 import { readdir, readFile, mkdtemp, rm, writeFile, mkdir, copyFile, stat } from 'fs/promises';
 import * as https from 'https';
@@ -98,7 +99,11 @@ const mastra = new Mastra({
   telemetry: {
     enabled: false
     // Disable telemetry to avoid the bundling issue
-  }
+  },
+  storage: new LibSQLStore({
+    url: ":memory:"
+    // In-memory storage for local testing (non-persistent)
+  })
 });
 
 // src/utils/mime.ts

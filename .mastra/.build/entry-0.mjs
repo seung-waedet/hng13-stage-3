@@ -1,6 +1,7 @@
 import { Agent, Mastra } from '@mastra/core';
 import { google } from '@ai-sdk/google';
 import { z } from 'zod';
+import { LibSQLStore } from '@mastra/libsql';
 
 const analyzeTranscript = {
   id: "analyze-transcript",
@@ -62,7 +63,11 @@ const mastra = new Mastra({
   telemetry: {
     enabled: false
     // Disable telemetry to avoid the bundling issue
-  }
+  },
+  storage: new LibSQLStore({
+    url: ":memory:"
+    // In-memory storage for local testing (non-persistent)
+  })
 });
 
 export { mastra, transcriptAgent };
