@@ -1,12 +1,4 @@
-import { evaluate } from '@mastra/core/eval';
-import { registerHook, AvailableHooks } from '@mastra/core/hooks';
-import { TABLE_EVALS } from '@mastra/core/storage';
-import { scoreTraces, scoreTracesWorkflow } from '@mastra/core/scores/scoreTraces';
-import { generateEmptyFromSchema, checkEvalStorageFields } from '@mastra/core/utils';
-import { Mastra, Agent } from '@mastra/core';
-import { google } from '@ai-sdk/google';
-import { z, ZodObject, ZodFirstPartyTypeKind } from 'zod';
-import { LibSQLStore } from '@mastra/libsql';
+import { M as MastraError, e as executeHook, c as createWorkflow, z, a as createStep, p as pMap, s as saveScorePayloadSchema, b as convertMessages, d as zodToJsonSchema$1, f as MastraBase, g as augmentWithInit, h as ModelRouterEmbeddingModel, i as deepMerge, j as MessageList, k as createWorkflow$1, l as createStep$1, A as Agent, m as createTool, t as tryGenerateWithJsonFallback, n as tryStreamWithJsonFallback, o as ModelRouterLanguageModel, q as generateEmptyFromSchema, Z as ZodObject, r as z$1, u as ZodFirstPartyTypeKind, v as toJSONSchema, w as safeParseAsync, R as RuntimeContext, P as PROVIDER_REGISTRY, x as isVercelTool, T as Tool, y as Telemetry, B as getProviderConfig, E as ErrorCategory, C as ErrorDomain, D as ChunkFrom, F as getErrorFromUnknown, G as AISpanType, H as mastra, I as registerHook, J as AvailableHooks, K as checkEvalStorageFields, L as TABLE_EVALS } from './mastra.mjs';
 import crypto$1, { randomUUID } from 'crypto';
 import { readdir, readFile, mkdtemp, rm, writeFile, mkdir, copyFile, stat } from 'fs/promises';
 import * as https from 'https';
@@ -16,95 +8,490 @@ import { Http2ServerRequest } from 'http2';
 import { Readable, Writable } from 'stream';
 import { existsSync, readFileSync, createReadStream, lstatSync } from 'fs';
 import { join, resolve as resolve$2, dirname, extname, basename, isAbsolute, relative } from 'path';
-import { RuntimeContext } from '@mastra/core/runtime-context';
-import { Telemetry } from '@mastra/core/telemetry';
-import { createTool, isVercelTool, Tool } from '@mastra/core/tools';
-import { MastraError, ErrorCategory, ErrorDomain, getErrorFromUnknown } from '@mastra/core/error';
-import { ModelRouterLanguageModel, PROVIDER_REGISTRY, getProviderConfig } from '@mastra/core/llm';
-import { ChunkFrom } from '@mastra/core/stream';
-import { Agent as Agent$1, tryGenerateWithJsonFallback, tryStreamWithJsonFallback, MessageList, convertMessages } from '@mastra/core/agent';
 import util, { promisify } from 'util';
 import { Buffer as Buffer$1 } from 'buffer';
-import { AISpanType } from '@mastra/core/ai-tracing';
-import { zodToJsonSchema as zodToJsonSchema$1 } from '@mastra/core/utils/zod-to-json';
-import { MastraA2AError } from '@mastra/core/a2a';
 import { TransformStream as TransformStream$1, ReadableStream as ReadableStream$1 } from 'stream/web';
-import { MastraMemory, MemoryProcessor } from '@mastra/core/memory';
-import * as z42 from 'zod/v4';
-import { z as z$1 } from 'zod/v4';
-import { ZodFirstPartyTypeKind as ZodFirstPartyTypeKind$1 } from 'zod/v3';
 import { spawn as spawn$1, execFile as execFile$1, exec as exec$1 } from 'child_process';
 import { createRequire } from 'module';
 import { tmpdir } from 'os';
-import { createWorkflow, createStep } from '@mastra/core/workflows';
 import { tools } from './tools.mjs';
+import 'events';
+import '@libsql/client';
 
-const analyzeTranscript = {
-  id: "analyze-transcript",
-  description: "Analyzes a meeting transcript to extract summary and action items",
-  inputSchema: z.object({
-    transcript: z.string().describe("The raw meeting transcript text")
-  }),
-  execute: async ({
-    context
-  }) => {
-    const {
-      transcript
-    } = context;
-    if (!transcript || transcript.trim().length < 50) {
-      return {
-        error: "Transcript too short. Please provide a meaningful meeting transcript (at least 50 characters)."
-      };
+// src/eval/evaluation.ts
+async function evaluate({
+  agentName,
+  input,
+  metric,
+  output,
+  runId,
+  globalRunId,
+  testInfo,
+  instructions
+}) {
+  const runIdToUse = runId || crypto.randomUUID();
+  let metricResult;
+  let metricName = metric.constructor.name;
+  try {
+    metricResult = await metric.measure(input.toString(), output);
+  } catch (e) {
+    throw new MastraError(
+      {
+        id: "EVAL_METRIC_MEASURE_EXECUTION_FAILED",
+        domain: "EVAL" /* EVAL */,
+        category: "USER" /* USER */,
+        details: {
+          agentName,
+          metricName,
+          globalRunId
+        }
+      },
+      e
+    );
+  }
+  const traceObject = {
+    input: input.toString(),
+    output,
+    result: metricResult,
+    agentName,
+    metricName,
+    instructions,
+    globalRunId,
+    runId: runIdToUse,
+    testInfo
+  };
+  try {
+    executeHook("onEvaluation" /* ON_EVALUATION */, traceObject);
+  } catch (e) {
+    throw new MastraError(
+      {
+        id: "EVAL_HOOK_EXECUTION_FAILED",
+        domain: "EVAL" /* EVAL */,
+        category: "USER" /* USER */,
+        details: {
+          agentName,
+          metricName,
+          globalRunId
+        }
+      },
+      e
+    );
+  }
+  return { ...metricResult, output };
+}
+
+// src/scores/scoreTraces/scoreTraces.ts
+async function scoreTraces({
+  scorerName,
+  targets,
+  mastra
+}) {
+  const workflow = mastra.__getInternalWorkflow("__batch-scoring-traces");
+  try {
+    const run = await workflow.createRunAsync();
+    await run.start({ inputData: { targets, scorerName } });
+  } catch (error) {
+    const mastraError = new MastraError(
+      {
+        category: "SYSTEM",
+        domain: "SCORER",
+        id: "MASTRA_SCORER_FAILED_TO_RUN_TRACE_SCORING",
+        details: {
+          scorerName,
+          targets: JSON.stringify(targets)
+        }
+      },
+      error
+    );
+    mastra.getLogger()?.trackException(mastraError);
+    mastra.getLogger()?.error(mastraError.toString());
+  }
+}
+
+// src/scores/scoreTraces/utils.ts
+function buildSpanTree(spans) {
+  const spanMap = /* @__PURE__ */ new Map();
+  const childrenMap = /* @__PURE__ */ new Map();
+  const rootSpans = [];
+  for (const span of spans) {
+    spanMap.set(span.spanId, span);
+  }
+  for (const span of spans) {
+    if (span.parentSpanId === null) {
+      rootSpans.push(span);
+    } else {
+      const siblings = childrenMap.get(span.parentSpanId) || [];
+      siblings.push(span);
+      childrenMap.set(span.parentSpanId, siblings);
     }
-    return {
-      transcript,
-      length: transcript.length,
-      wordCount: transcript.split(/\s+/).length
+  }
+  for (const children of childrenMap.values()) {
+    children.sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
+  }
+  rootSpans.sort((a, b) => new Date(a.startedAt).getTime() - new Date(b.startedAt).getTime());
+  return { spanMap, childrenMap, rootSpans };
+}
+function getChildrenOfType(spanTree, parentSpanId, spanType) {
+  const children = spanTree.childrenMap.get(parentSpanId) || [];
+  return children.filter((span) => span.spanType === spanType);
+}
+function normalizeMessageContent(content) {
+  if (typeof content === "string") {
+    return content;
+  }
+  const tempMessage = {
+    id: "temp",
+    role: "user",
+    parts: content.map((part) => ({ type: part.type, text: part.text }))
+  };
+  const converted = convertMessages(tempMessage).to("AIV4.UI");
+  return converted[0]?.content || "";
+}
+function convertToUIMessage(message, createdAt) {
+  let messageInput;
+  if (typeof message.content === "string") {
+    messageInput = {
+      id: "temp",
+      role: message.role,
+      content: message.content
+    };
+  } else {
+    messageInput = {
+      id: "temp",
+      role: message.role,
+      parts: message.content.map((part) => ({ type: part.type, text: part.text }))
     };
   }
-};
-const transcriptAgent = new Agent({
-  name: "Meeting Transcript Analyzer",
-  instructions: `You are a professional meeting analyst. Your task is to analyze meeting transcripts and provide:
+  const converted = convertMessages(messageInput).to("AIV4.UI");
+  const result = converted[0];
+  if (!result) {
+    throw new Error("Failed to convert message");
+  }
+  return {
+    ...result,
+    id: "",
+    // Spans don't have message IDs
+    createdAt: new Date(createdAt)
+    // Use span timestamp
+  };
+}
+function extractInputMessages(agentSpan) {
+  const input = agentSpan.input;
+  if (typeof input === "string") {
+    return [
+      {
+        role: "user",
+        content: input,
+        createdAt: new Date(agentSpan.startedAt),
+        parts: [{ type: "text", text: input }],
+        experimental_attachments: []
+      }
+    ];
+  }
+  if (Array.isArray(input)) {
+    return input.map((msg) => convertToUIMessage(msg, agentSpan.startedAt));
+  }
+  if (input && typeof input === "object" && Array.isArray(input.messages)) {
+    return input.messages.map((msg) => convertToUIMessage(msg, agentSpan.startedAt));
+  }
+  return [];
+}
+function extractSystemMessages(llmSpan) {
+  return (llmSpan.input?.messages || []).filter((msg) => msg.role === "system").map((msg) => ({
+    role: "system",
+    content: normalizeMessageContent(msg.content)
+  }));
+}
+function extractRememberedMessages(llmSpan, currentInputContent) {
+  const messages = (llmSpan.input?.messages || []).filter((msg) => msg.role !== "system").filter((msg) => normalizeMessageContent(msg.content) !== currentInputContent);
+  return messages.map((msg) => convertToUIMessage(msg, llmSpan.startedAt));
+}
+function reconstructToolInvocations(spanTree, parentSpanId) {
+  const toolSpans = getChildrenOfType(spanTree, parentSpanId, "tool_call" /* TOOL_CALL */);
+  return toolSpans.map((toolSpan) => ({
+    state: "result",
+    toolName: toolSpan.attributes?.toolId,
+    args: toolSpan.input || {},
+    result: toolSpan.output || {}
+  }));
+}
+function createMessageParts(toolInvocations, textContent) {
+  const parts = [];
+  for (const toolInvocation of toolInvocations) {
+    parts.push({
+      type: "tool-invocation",
+      toolInvocation
+    });
+  }
+  if (textContent.trim()) {
+    parts.push({
+      type: "text",
+      text: textContent
+    });
+  }
+  return parts;
+}
+function validateTrace(trace) {
+  if (!trace) {
+    throw new Error("Trace is null or undefined");
+  }
+  if (!trace.spans || !Array.isArray(trace.spans)) {
+    throw new Error("Trace must have a spans array");
+  }
+  if (trace.spans.length === 0) {
+    throw new Error("Trace has no spans");
+  }
+  const spanIds = new Set(trace.spans.map((span) => span.spanId));
+  for (const span of trace.spans) {
+    if (span.parentSpanId && !spanIds.has(span.parentSpanId)) {
+      throw new Error(`Span ${span.spanId} references non-existent parent ${span.parentSpanId}`);
+    }
+  }
+}
+function findPrimaryLLMSpan(spanTree, rootAgentSpan) {
+  const directLLMSpans = getChildrenOfType(spanTree, rootAgentSpan.spanId, "model_generation" /* MODEL_GENERATION */);
+  if (directLLMSpans.length > 0) {
+    return directLLMSpans[0];
+  }
+  throw new Error("No model generation span found in trace");
+}
+function prepareTraceForTransformation(trace) {
+  validateTrace(trace);
+  const spanTree = buildSpanTree(trace.spans);
+  const rootAgentSpan = spanTree.rootSpans.find((span) => span.spanType === "agent_run");
+  if (!rootAgentSpan) {
+    throw new Error("No root agent_run span found in trace");
+  }
+  return { spanTree, rootAgentSpan };
+}
+function transformTraceToScorerInputAndOutput(trace) {
+  const { spanTree, rootAgentSpan } = prepareTraceForTransformation(trace);
+  if (!rootAgentSpan.output) {
+    throw new Error("Root agent span has no output");
+  }
+  const primaryLLMSpan = findPrimaryLLMSpan(spanTree, rootAgentSpan);
+  const inputMessages = extractInputMessages(rootAgentSpan);
+  const systemMessages = extractSystemMessages(primaryLLMSpan);
+  const currentInputContent = inputMessages[0]?.content || "";
+  const rememberedMessages = extractRememberedMessages(primaryLLMSpan, currentInputContent);
+  const input = {
+    // We do not keep track of the tool call ids in traces, so we need to cast to UIMessageWithMetadata
+    inputMessages,
+    rememberedMessages,
+    systemMessages,
+    taggedSystemMessages: {}
+    // Todo: Support tagged system messages
+  };
+  const toolInvocations = reconstructToolInvocations(spanTree, rootAgentSpan.spanId);
+  const responseText = rootAgentSpan.output.text || "";
+  const responseMessage = {
+    role: "assistant",
+    content: responseText,
+    createdAt: new Date(rootAgentSpan.endedAt || rootAgentSpan.startedAt),
+    // @ts-ignore
+    parts: createMessageParts(toolInvocations, responseText),
+    experimental_attachments: [],
+    // Tool invocations are being deprecated however we need to support it for now
+    toolInvocations
+  };
+  const output = [responseMessage];
+  return {
+    input,
+    output
+  };
+}
 
-1. **Concise Summary**: A brief 2-3 paragraph summary of the meeting's main points
-2. **Action Items**: A clear list of action items extracted from the discussion
-
-Format your response EXACTLY as follows:
-
-## Meeting Summary
-[2-3 paragraphs summarizing the key discussion points, decisions made, and main topics covered]
-
-## Action Items
-- [ ] Action item 1 (if responsible person mentioned, include their name)
-- [ ] Action item 2
-- [ ] Action item 3
-
-## Key Decisions
-[List any important decisions made during the meeting]
-
-Be concise but comprehensive. Focus on actionable insights.`,
-  model: google("gemini-2.5-flash"),
-  tools: {
-    analyzeTranscript
+// src/scores/scoreTraces/scoreTracesWorkflow.ts
+var getTraceStep = createStep({
+  id: "__process-trace-scoring",
+  inputSchema: z.object({
+    targets: z.array(
+      z.object({
+        traceId: z.string(),
+        spanId: z.string().optional()
+      })
+    ),
+    scorerName: z.string()
+  }),
+  outputSchema: z.any(),
+  execute: async ({ inputData, tracingContext, mastra }) => {
+    const logger = mastra.getLogger();
+    if (!logger) {
+      console.warn(
+        "[scoreTracesWorkflow] Logger not initialized: no debug or error logs will be recorded for scoring traces."
+      );
+    }
+    const storage = mastra.getStorage();
+    if (!storage) {
+      const mastraError = new MastraError({
+        id: "MASTRA_STORAGE_NOT_FOUND_FOR_TRACE_SCORING",
+        domain: "STORAGE" /* STORAGE */,
+        category: "SYSTEM" /* SYSTEM */,
+        text: "Storage not found for trace scoring",
+        details: {
+          scorerName: inputData.scorerName
+        }
+      });
+      logger?.error(mastraError.toString());
+      logger?.trackException(mastraError);
+      return;
+    }
+    let scorer;
+    try {
+      scorer = mastra.getScorerByName(inputData.scorerName);
+    } catch (error) {
+      const mastraError = new MastraError(
+        {
+          id: "MASTRA_SCORER_NOT_FOUND_FOR_TRACE_SCORING",
+          domain: "SCORER" /* SCORER */,
+          category: "SYSTEM" /* SYSTEM */,
+          text: `Scorer not found for trace scoring`,
+          details: {
+            scorerName: inputData.scorerName
+          }
+        },
+        error
+      );
+      logger?.error(mastraError.toString());
+      logger?.trackException(mastraError);
+      return;
+    }
+    await pMap(
+      inputData.targets,
+      async (target) => {
+        try {
+          await runScorerOnTarget({ storage, scorer, target, tracingContext });
+        } catch (error) {
+          const mastraError = new MastraError(
+            {
+              id: "MASTRA_SCORER_FAILED_TO_RUN_SCORER_ON_TRACE",
+              domain: "SCORER" /* SCORER */,
+              category: "SYSTEM" /* SYSTEM */,
+              details: {
+                scorerName: scorer.name,
+                spanId: target.spanId || "",
+                traceId: target.traceId
+              }
+            },
+            error
+          );
+          logger?.error(mastraError.toString());
+          logger?.trackException(mastraError);
+        }
+      },
+      { concurrency: 3 }
+    );
   }
 });
-const mastra = new Mastra({
-  agents: {
-    transcriptAgent
-  },
-  server: {
-    port: 4111
-  },
-  telemetry: {
-    enabled: false
-    // Disable telemetry to avoid the bundling issue
-  },
-  storage: new LibSQLStore({
-    url: ":memory:"
-    // In-memory storage for local testing (non-persistent)
-  })
+async function runScorerOnTarget({
+  storage,
+  scorer,
+  target,
+  tracingContext
+}) {
+  const trace = await storage.getAITrace(target.traceId);
+  if (!trace) {
+    throw new Error(`Trace not found for scoring, traceId: ${target.traceId}`);
+  }
+  let span;
+  if (target.spanId) {
+    span = trace.spans.find((span2) => span2.spanId === target.spanId);
+  } else {
+    span = trace.spans.find((span2) => span2.parentSpanId === null);
+  }
+  if (!span) {
+    throw new Error(
+      `Span not found for scoring, traceId: ${target.traceId}, spanId: ${target.spanId ?? "Not provided"}`
+    );
+  }
+  const scorerRun = buildScorerRun({
+    scorerType: scorer.type === "agent" ? "agent" : void 0,
+    tracingContext,
+    trace,
+    targetSpan: span
+  });
+  const result = await scorer.run(scorerRun);
+  const scorerResult = {
+    ...result,
+    scorer: {
+      id: scorer.name,
+      name: scorer.name,
+      description: scorer.description
+    },
+    traceId: target.traceId,
+    spanId: target.spanId,
+    entityId: span.name,
+    entityType: span.spanType,
+    entity: { traceId: span.traceId, spanId: span.spanId },
+    source: "TEST",
+    scorerId: scorer.name
+  };
+  const savedScoreRecord = await validateAndSaveScore({ storage, scorerResult });
+  await attachScoreToSpan({ storage, span, scoreRecord: savedScoreRecord });
+}
+async function validateAndSaveScore({ storage, scorerResult }) {
+  const payloadToSave = saveScorePayloadSchema.parse(scorerResult);
+  const result = await storage.saveScore(payloadToSave);
+  return result.score;
+}
+function buildScorerRun({
+  scorerType,
+  tracingContext,
+  trace,
+  targetSpan
+}) {
+  let runPayload;
+  if (scorerType === "agent") {
+    const { input, output } = transformTraceToScorerInputAndOutput(trace);
+    runPayload = {
+      input,
+      output
+    };
+  } else {
+    runPayload = { input: targetSpan.input, output: targetSpan.output };
+  }
+  runPayload.tracingContext = tracingContext;
+  return runPayload;
+}
+async function attachScoreToSpan({
+  storage,
+  span,
+  scoreRecord
+}) {
+  const existingLinks = span.links || [];
+  const link = {
+    type: "score",
+    scoreId: scoreRecord.id,
+    scorerName: scoreRecord.scorer.name,
+    score: scoreRecord.score,
+    createdAt: scoreRecord.createdAt
+  };
+  await storage.updateAISpan({
+    spanId: span.spanId,
+    traceId: span.traceId,
+    updates: { links: [...existingLinks, link] }
+  });
+}
+var scoreTracesWorkflow = createWorkflow({
+  id: "__batch-scoring-traces",
+  inputSchema: z.object({
+    targets: z.array(
+      z.object({
+        traceId: z.string(),
+        spanId: z.string().optional()
+      })
+    ),
+    scorerName: z.string()
+  }),
+  outputSchema: z.any(),
+  steps: [getTraceStep],
+  options: {
+    tracingPolicy: {
+      internal: 15 /* ALL */
+    }
+  }
 });
+scoreTracesWorkflow.then(getTraceStep).commit();
 
 // src/utils/mime.ts
 var getMimeType = (filename, mimes = baseMimes) => {
@@ -388,29 +775,6 @@ var compose = (middleware, onError, onNotFound) => {
       return context;
     }
   };
-};
-
-// src/http-exception.ts
-var HTTPException$1 = class HTTPException extends Error {
-  res;
-  status;
-  constructor(status = 500, options) {
-    super(options?.message, { cause: options?.cause });
-    this.res = options?.res;
-    this.status = status;
-  }
-  getResponse() {
-    if (this.res) {
-      const newResponse = new Response(this.res.body, {
-        status: this.status,
-        headers: this.res.headers
-      });
-      return newResponse;
-    }
-    return new Response(this.message, {
-      status: this.status
-    });
-  }
 };
 
 // src/request/constants.ts
@@ -1965,6 +2329,29 @@ var logger = (fn = console.log) => {
   };
 };
 
+// src/http-exception.ts
+var HTTPException$1 = class HTTPException extends Error {
+  res;
+  status;
+  constructor(status = 500, options) {
+    super(options?.message, { cause: options?.cause });
+    this.res = options?.res;
+    this.status = status;
+  }
+  getResponse() {
+    if (this.res) {
+      const newResponse = new Response(this.res.body, {
+        status: this.status,
+        headers: this.res.headers
+      });
+      return newResponse;
+    }
+    return new Response(this.message, {
+      status: this.status
+    });
+  }
+};
+
 // src/middleware/timeout/index.ts
 var defaultTimeoutException = new HTTPException$1(504, {
   message: "Gateway Timeout"
@@ -2915,6 +3302,73 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   __defProp$1(target, "default", { value: mod, enumerable: true }) ,
   mod
 ));
+
+// src/a2a/types.ts
+var ErrorCodeParseError = -32700;
+var ErrorCodeInvalidRequest = -32600;
+var ErrorCodeMethodNotFound = -32601;
+var ErrorCodeInvalidParams = -32602;
+var ErrorCodeInternalError = -32603;
+var ErrorCodeTaskNotFound = -32001;
+var ErrorCodeTaskNotCancelable = -32002;
+var ErrorCodePushNotificationNotSupported = -32003;
+var ErrorCodeUnsupportedOperation = -32004;
+
+// src/a2a/error.ts
+var MastraA2AError = class _MastraA2AError extends Error {
+  code;
+  data;
+  taskId;
+  // Optional task ID context
+  constructor(code, message, data, taskId) {
+    super(message);
+    this.name = "MastraA2AError";
+    this.code = code;
+    this.data = data;
+    this.taskId = taskId;
+  }
+  /**
+   * Formats the error into a standard JSON-RPC error object structure.
+   */
+  toJSONRPCError() {
+    const errorObject = {
+      code: this.code,
+      message: this.message
+    };
+    if (this.data !== void 0) {
+      errorObject.data = this.data;
+    }
+    return errorObject;
+  }
+  // Static factory methods for common errors
+  static parseError(message, data) {
+    return new _MastraA2AError(ErrorCodeParseError, message, data);
+  }
+  static invalidRequest(message, data) {
+    return new _MastraA2AError(ErrorCodeInvalidRequest, message, data);
+  }
+  static methodNotFound(method) {
+    return new _MastraA2AError(ErrorCodeMethodNotFound, `Method not found: ${method}`);
+  }
+  static invalidParams(message, data) {
+    return new _MastraA2AError(ErrorCodeInvalidParams, message, data);
+  }
+  static internalError(message, data) {
+    return new _MastraA2AError(ErrorCodeInternalError, message, data);
+  }
+  static taskNotFound(taskId) {
+    return new _MastraA2AError(ErrorCodeTaskNotFound, `Task not found: ${taskId}`, void 0, taskId);
+  }
+  static taskNotCancelable(taskId) {
+    return new _MastraA2AError(ErrorCodeTaskNotCancelable, `Task not cancelable: ${taskId}`, void 0, taskId);
+  }
+  static pushNotificationNotSupported() {
+    return new _MastraA2AError(ErrorCodePushNotificationNotSupported, "Push Notification is not supported");
+  }
+  static unsupportedOperation(operation) {
+    return new _MastraA2AError(ErrorCodeUnsupportedOperation, `Unsupported operation: ${operation}`);
+  }
+};
 
 // src/server/handlers/a2a.ts
 var a2a_exports = {};
@@ -8098,6 +8552,264 @@ var openai = createOpenAI({
   compatibility: "strict"
   // strict for OpenAI API
 });
+
+// src/memory/memory.ts
+var MemoryProcessor = class extends MastraBase {
+  /**
+   * Process a list of messages and return a filtered or transformed list.
+   * @param messages The messages to process
+   * @returns The processed messages
+   */
+  process(messages, _opts) {
+    return messages;
+  }
+};
+var memoryDefaultOptions = {
+  lastMessages: 10,
+  semanticRecall: false,
+  threads: {
+    generateTitle: true
+  },
+  workingMemory: {
+    enabled: false,
+    template: `
+# User Information
+- **First Name**: 
+- **Last Name**: 
+- **Location**: 
+- **Occupation**: 
+- **Interests**: 
+- **Goals**: 
+- **Events**: 
+- **Facts**: 
+- **Projects**: 
+`
+  }
+};
+var MastraMemory = class extends MastraBase {
+  MAX_CONTEXT_TOKENS;
+  _storage;
+  vector;
+  embedder;
+  processors = [];
+  threadConfig = { ...memoryDefaultOptions };
+  #mastra;
+  constructor(config) {
+    super({ component: "MEMORY", name: config.name });
+    if (config.options) this.threadConfig = this.getMergedThreadConfig(config.options);
+    if (config.processors) this.processors = config.processors;
+    if (config.storage) {
+      this._storage = augmentWithInit(config.storage);
+      this._hasOwnStorage = true;
+    }
+    if (this.threadConfig.semanticRecall) {
+      if (!config.vector) {
+        throw new Error(
+          `Semantic recall requires a vector store to be configured.
+
+https://mastra.ai/en/docs/memory/semantic-recall`
+        );
+      }
+      this.vector = config.vector;
+      if (!config.embedder) {
+        throw new Error(
+          `Semantic recall requires an embedder to be configured.
+
+https://mastra.ai/en/docs/memory/semantic-recall`
+        );
+      }
+      if (typeof config.embedder === "string") {
+        this.embedder = new ModelRouterEmbeddingModel(config.embedder);
+      } else {
+        this.embedder = config.embedder;
+      }
+    }
+  }
+  /**
+   * Internal method used by Mastra to register itself with the memory.
+   * @param mastra The Mastra instance.
+   * @internal
+   */
+  __registerMastra(mastra) {
+    this.#mastra = mastra;
+  }
+  _hasOwnStorage = false;
+  get hasOwnStorage() {
+    return this._hasOwnStorage;
+  }
+  get storage() {
+    if (!this._storage) {
+      throw new Error(
+        `Memory requires a storage provider to function. Add a storage configuration to Memory or to your Mastra instance.
+
+https://mastra.ai/en/docs/memory/overview`
+      );
+    }
+    return this._storage;
+  }
+  setStorage(storage) {
+    this._storage = augmentWithInit(storage);
+  }
+  setVector(vector) {
+    this.vector = vector;
+  }
+  setEmbedder(embedder) {
+    this.embedder = embedder;
+  }
+  /**
+   * Get a system message to inject into the conversation.
+   * This will be called before each conversation turn.
+   * Implementations can override this to inject custom system messages.
+   */
+  async getSystemMessage(_input) {
+    return null;
+  }
+  /**
+   * Get tools that should be available to the agent.
+   * This will be called when converting tools for the agent.
+   * Implementations can override this to provide additional tools.
+   */
+  getTools(_config) {
+    return {};
+  }
+  async createEmbeddingIndex(dimensions, config) {
+    const defaultDimensions = 1536;
+    const isDefault = dimensions === defaultDimensions;
+    const usedDimensions = dimensions ?? defaultDimensions;
+    const separator = this.vector?.indexSeparator ?? "_";
+    const indexName = isDefault ? `memory${separator}messages` : `memory${separator}messages${separator}${usedDimensions}`;
+    if (typeof this.vector === `undefined`) {
+      throw new Error(`Tried to create embedding index but no vector db is attached to this Memory instance.`);
+    }
+    const semanticConfig = typeof config?.semanticRecall === "object" ? config.semanticRecall : void 0;
+    const indexConfig = semanticConfig?.indexConfig;
+    const createParams = {
+      indexName,
+      dimension: usedDimensions,
+      ...indexConfig?.metric && { metric: indexConfig.metric }
+    };
+    if (indexConfig && (indexConfig.type || indexConfig.ivf || indexConfig.hnsw)) {
+      createParams.indexConfig = {};
+      if (indexConfig.type) createParams.indexConfig.type = indexConfig.type;
+      if (indexConfig.ivf) createParams.indexConfig.ivf = indexConfig.ivf;
+      if (indexConfig.hnsw) createParams.indexConfig.hnsw = indexConfig.hnsw;
+    }
+    await this.vector.createIndex(createParams);
+    return { indexName };
+  }
+  getMergedThreadConfig(config) {
+    if (config?.workingMemory && "use" in config.workingMemory) {
+      throw new Error("The workingMemory.use option has been removed. Working memory always uses tool-call mode.");
+    }
+    const mergedConfig = deepMerge(this.threadConfig, config || {});
+    if (config?.workingMemory?.schema) {
+      if (mergedConfig.workingMemory) {
+        mergedConfig.workingMemory.schema = config.workingMemory.schema;
+      }
+    }
+    return mergedConfig;
+  }
+  /**
+   * Apply all configured message processors to a list of messages.
+   * @param messages The messages to process
+   * @returns The processed messages
+   */
+  async applyProcessors(messages, opts) {
+    const processors = opts.processors || this.processors;
+    if (!processors || processors.length === 0) {
+      return messages;
+    }
+    let processedMessages = [...messages];
+    for (const processor of processors) {
+      processedMessages = await processor.process(processedMessages, {
+        systemMessage: opts.systemMessage,
+        newMessages: opts.newMessages,
+        memorySystemMessage: opts.memorySystemMessage
+      });
+    }
+    return processedMessages;
+  }
+  processMessages({
+    messages,
+    processors,
+    ...opts
+  }) {
+    return this.applyProcessors(messages, { processors: processors || this.processors, ...opts });
+  }
+  estimateTokens(text) {
+    return Math.ceil(text.split(" ").length * 1.3);
+  }
+  /**
+   * Helper method to create a new thread
+   * @param title - Optional title for the thread
+   * @param metadata - Optional metadata for the thread
+   * @returns Promise resolving to the created thread
+   */
+  async createThread({
+    threadId,
+    resourceId,
+    title,
+    metadata,
+    memoryConfig,
+    saveThread = true
+  }) {
+    const thread = {
+      id: threadId || this.generateId(),
+      title: title || `New Thread ${(/* @__PURE__ */ new Date()).toISOString()}`,
+      resourceId,
+      createdAt: /* @__PURE__ */ new Date(),
+      updatedAt: /* @__PURE__ */ new Date(),
+      metadata
+    };
+    return saveThread ? this.saveThread({ thread, memoryConfig }) : thread;
+  }
+  /**
+   * Helper method to add a single message to a thread
+   * @param threadId - The thread to add the message to
+   * @param content - The message content
+   * @param role - The role of the message sender
+   * @param type - The type of the message
+   * @param toolNames - Optional array of tool names that were called
+   * @param toolCallArgs - Optional array of tool call arguments
+   * @param toolCallIds - Optional array of tool call ids
+   * @returns Promise resolving to the saved message
+   * @deprecated use saveMessages instead
+   */
+  async addMessage({
+    threadId,
+    resourceId,
+    config,
+    content,
+    role,
+    type,
+    toolNames,
+    toolCallArgs,
+    toolCallIds
+  }) {
+    const message = {
+      id: this.generateId(),
+      content,
+      role,
+      createdAt: /* @__PURE__ */ new Date(),
+      threadId,
+      resourceId,
+      type,
+      toolNames,
+      toolCallArgs,
+      toolCallIds
+    };
+    const savedMessages = await this.saveMessages({ messages: [message], memoryConfig: config });
+    const list = new MessageList({ threadId, resourceId }).add(savedMessages[0], "memory");
+    return list.get.all.v1()[0];
+  }
+  /**
+   * Generates a unique identifier
+   * @returns A unique string ID
+   */
+  generateId() {
+    return this.#mastra?.generateId() || crypto.randomUUID();
+  }
+};
 
 // ../../node_modules/.pnpm/@vercel+oidc@3.0.3/node_modules/@vercel/oidc/dist/get-context.js
 var require_get_context = __commonJS({
@@ -13611,7 +14323,7 @@ function parseArrayDef2(def, refs) {
   const res = {
     type: "array"
   };
-  if (((_a21 = def.type) == null ? void 0 : _a21._def) && ((_c = (_b8 = def.type) == null ? void 0 : _b8._def) == null ? void 0 : _c.typeName) !== ZodFirstPartyTypeKind$1.ZodAny) {
+  if (((_a21 = def.type) == null ? void 0 : _a21._def) && ((_c = (_b8 = def.type) == null ? void 0 : _b8._def) == null ? void 0 : _c.typeName) !== ZodFirstPartyTypeKind.ZodAny) {
     res.items = parseDef2(def.type._def, {
       ...refs,
       currentPath: [...refs.currentPath, "items"]
@@ -14092,20 +14804,20 @@ function parseRecordDef2(def, refs) {
       currentPath: [...refs.currentPath, "additionalProperties"]
     })) != null ? _a21 : refs.allowedAdditionalProperties
   };
-  if (((_b8 = def.keyType) == null ? void 0 : _b8._def.typeName) === ZodFirstPartyTypeKind$1.ZodString && ((_c = def.keyType._def.checks) == null ? void 0 : _c.length)) {
+  if (((_b8 = def.keyType) == null ? void 0 : _b8._def.typeName) === ZodFirstPartyTypeKind.ZodString && ((_c = def.keyType._def.checks) == null ? void 0 : _c.length)) {
     const { type, ...keyType } = parseStringDef2(def.keyType._def, refs);
     return {
       ...schema,
       propertyNames: keyType
     };
-  } else if (((_d = def.keyType) == null ? void 0 : _d._def.typeName) === ZodFirstPartyTypeKind$1.ZodEnum) {
+  } else if (((_d = def.keyType) == null ? void 0 : _d._def.typeName) === ZodFirstPartyTypeKind.ZodEnum) {
     return {
       ...schema,
       propertyNames: {
         enum: def.keyType._def.values
       }
     };
-  } else if (((_e = def.keyType) == null ? void 0 : _e._def.typeName) === ZodFirstPartyTypeKind$1.ZodBranded && def.keyType._def.type._def.typeName === ZodFirstPartyTypeKind$1.ZodString && ((_f = def.keyType._def.type._def.checks) == null ? void 0 : _f.length)) {
+  } else if (((_e = def.keyType) == null ? void 0 : _e._def.typeName) === ZodFirstPartyTypeKind.ZodBranded && def.keyType._def.type._def.typeName === ZodFirstPartyTypeKind.ZodString && ((_f = def.keyType._def.type._def.checks) == null ? void 0 : _f.length)) {
     const { type, ...keyType } = parseBrandedDef2(
       def.keyType._def,
       refs
@@ -14447,73 +15159,73 @@ var parseReadonlyDef2 = (def, refs) => {
 };
 var selectParser2 = (def, typeName, refs) => {
   switch (typeName) {
-    case ZodFirstPartyTypeKind$1.ZodString:
+    case ZodFirstPartyTypeKind.ZodString:
       return parseStringDef2(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodNumber:
+    case ZodFirstPartyTypeKind.ZodNumber:
       return parseNumberDef2(def);
-    case ZodFirstPartyTypeKind$1.ZodObject:
+    case ZodFirstPartyTypeKind.ZodObject:
       return parseObjectDef2(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodBigInt:
+    case ZodFirstPartyTypeKind.ZodBigInt:
       return parseBigintDef2(def);
-    case ZodFirstPartyTypeKind$1.ZodBoolean:
+    case ZodFirstPartyTypeKind.ZodBoolean:
       return parseBooleanDef2();
-    case ZodFirstPartyTypeKind$1.ZodDate:
+    case ZodFirstPartyTypeKind.ZodDate:
       return parseDateDef2(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodUndefined:
+    case ZodFirstPartyTypeKind.ZodUndefined:
       return parseUndefinedDef2();
-    case ZodFirstPartyTypeKind$1.ZodNull:
+    case ZodFirstPartyTypeKind.ZodNull:
       return parseNullDef2();
-    case ZodFirstPartyTypeKind$1.ZodArray:
+    case ZodFirstPartyTypeKind.ZodArray:
       return parseArrayDef2(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodUnion:
-    case ZodFirstPartyTypeKind$1.ZodDiscriminatedUnion:
+    case ZodFirstPartyTypeKind.ZodUnion:
+    case ZodFirstPartyTypeKind.ZodDiscriminatedUnion:
       return parseUnionDef2(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodIntersection:
+    case ZodFirstPartyTypeKind.ZodIntersection:
       return parseIntersectionDef2(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodTuple:
+    case ZodFirstPartyTypeKind.ZodTuple:
       return parseTupleDef2(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodRecord:
+    case ZodFirstPartyTypeKind.ZodRecord:
       return parseRecordDef2(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodLiteral:
+    case ZodFirstPartyTypeKind.ZodLiteral:
       return parseLiteralDef2(def);
-    case ZodFirstPartyTypeKind$1.ZodEnum:
+    case ZodFirstPartyTypeKind.ZodEnum:
       return parseEnumDef2(def);
-    case ZodFirstPartyTypeKind$1.ZodNativeEnum:
+    case ZodFirstPartyTypeKind.ZodNativeEnum:
       return parseNativeEnumDef2(def);
-    case ZodFirstPartyTypeKind$1.ZodNullable:
+    case ZodFirstPartyTypeKind.ZodNullable:
       return parseNullableDef2(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodOptional:
+    case ZodFirstPartyTypeKind.ZodOptional:
       return parseOptionalDef2(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodMap:
+    case ZodFirstPartyTypeKind.ZodMap:
       return parseMapDef2(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodSet:
+    case ZodFirstPartyTypeKind.ZodSet:
       return parseSetDef2(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodLazy:
+    case ZodFirstPartyTypeKind.ZodLazy:
       return () => def.getter()._def;
-    case ZodFirstPartyTypeKind$1.ZodPromise:
+    case ZodFirstPartyTypeKind.ZodPromise:
       return parsePromiseDef2(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodNaN:
-    case ZodFirstPartyTypeKind$1.ZodNever:
+    case ZodFirstPartyTypeKind.ZodNaN:
+    case ZodFirstPartyTypeKind.ZodNever:
       return parseNeverDef2();
-    case ZodFirstPartyTypeKind$1.ZodEffects:
+    case ZodFirstPartyTypeKind.ZodEffects:
       return parseEffectsDef2(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodAny:
+    case ZodFirstPartyTypeKind.ZodAny:
       return parseAnyDef2();
-    case ZodFirstPartyTypeKind$1.ZodUnknown:
+    case ZodFirstPartyTypeKind.ZodUnknown:
       return parseUnknownDef2();
-    case ZodFirstPartyTypeKind$1.ZodDefault:
+    case ZodFirstPartyTypeKind.ZodDefault:
       return parseDefaultDef2(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodBranded:
+    case ZodFirstPartyTypeKind.ZodBranded:
       return parseBrandedDef2(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodReadonly:
+    case ZodFirstPartyTypeKind.ZodReadonly:
       return parseReadonlyDef2(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodCatch:
+    case ZodFirstPartyTypeKind.ZodCatch:
       return parseCatchDef2(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodPipeline:
+    case ZodFirstPartyTypeKind.ZodPipeline:
       return parsePipelineDef2(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodFunction:
-    case ZodFirstPartyTypeKind$1.ZodVoid:
-    case ZodFirstPartyTypeKind$1.ZodSymbol:
+    case ZodFirstPartyTypeKind.ZodFunction:
+    case ZodFirstPartyTypeKind.ZodVoid:
+    case ZodFirstPartyTypeKind.ZodSymbol:
       return void 0;
     default:
       return /* @__PURE__ */ ((_) => void 0)();
@@ -14670,14 +15382,14 @@ function zod3Schema(zodSchema22, options) {
 function zod4Schema(zodSchema22, options) {
   var _a21;
   const useReferences = (_a21 = void 0 ) != null ? _a21 : false;
-  const z4JSONSchema = z42.toJSONSchema(zodSchema22, {
+  const z4JSONSchema = toJSONSchema(zodSchema22, {
     target: "draft-7",
     io: "output",
     reused: useReferences ? "ref" : "inline"
   });
   return jsonSchema2(z4JSONSchema, {
     validate: async (value) => {
-      const result = await z42.safeParseAsync(zodSchema22, value);
+      const result = await safeParseAsync(zodSchema22, value);
       return result.success ? { success: true, value: result.data } : { success: false, error: result.error };
     }
   });
@@ -19614,7 +20326,7 @@ function parseArrayDef3(def, refs) {
   const res = {
     type: "array"
   };
-  if (((_a21 = def.type) == null ? void 0 : _a21._def) && ((_c = (_b8 = def.type) == null ? void 0 : _b8._def) == null ? void 0 : _c.typeName) !== ZodFirstPartyTypeKind$1.ZodAny) {
+  if (((_a21 = def.type) == null ? void 0 : _a21._def) && ((_c = (_b8 = def.type) == null ? void 0 : _b8._def) == null ? void 0 : _c.typeName) !== ZodFirstPartyTypeKind.ZodAny) {
     res.items = parseDef3(def.type._def, {
       ...refs,
       currentPath: [...refs.currentPath, "items"]
@@ -20093,20 +20805,20 @@ function parseRecordDef3(def, refs) {
       currentPath: [...refs.currentPath, "additionalProperties"]
     })) != null ? _a21 : refs.allowedAdditionalProperties
   };
-  if (((_b8 = def.keyType) == null ? void 0 : _b8._def.typeName) === ZodFirstPartyTypeKind$1.ZodString && ((_c = def.keyType._def.checks) == null ? void 0 : _c.length)) {
+  if (((_b8 = def.keyType) == null ? void 0 : _b8._def.typeName) === ZodFirstPartyTypeKind.ZodString && ((_c = def.keyType._def.checks) == null ? void 0 : _c.length)) {
     const { type, ...keyType } = parseStringDef3(def.keyType._def, refs);
     return {
       ...schema,
       propertyNames: keyType
     };
-  } else if (((_d = def.keyType) == null ? void 0 : _d._def.typeName) === ZodFirstPartyTypeKind$1.ZodEnum) {
+  } else if (((_d = def.keyType) == null ? void 0 : _d._def.typeName) === ZodFirstPartyTypeKind.ZodEnum) {
     return {
       ...schema,
       propertyNames: {
         enum: def.keyType._def.values
       }
     };
-  } else if (((_e = def.keyType) == null ? void 0 : _e._def.typeName) === ZodFirstPartyTypeKind$1.ZodBranded && def.keyType._def.type._def.typeName === ZodFirstPartyTypeKind$1.ZodString && ((_f = def.keyType._def.type._def.checks) == null ? void 0 : _f.length)) {
+  } else if (((_e = def.keyType) == null ? void 0 : _e._def.typeName) === ZodFirstPartyTypeKind.ZodBranded && def.keyType._def.type._def.typeName === ZodFirstPartyTypeKind.ZodString && ((_f = def.keyType._def.type._def.checks) == null ? void 0 : _f.length)) {
     const { type, ...keyType } = parseBrandedDef3(
       def.keyType._def,
       refs
@@ -20446,73 +21158,73 @@ var parseReadonlyDef3 = (def, refs) => {
 };
 var selectParser3 = (def, typeName, refs) => {
   switch (typeName) {
-    case ZodFirstPartyTypeKind$1.ZodString:
+    case ZodFirstPartyTypeKind.ZodString:
       return parseStringDef3(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodNumber:
+    case ZodFirstPartyTypeKind.ZodNumber:
       return parseNumberDef3(def);
-    case ZodFirstPartyTypeKind$1.ZodObject:
+    case ZodFirstPartyTypeKind.ZodObject:
       return parseObjectDef3(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodBigInt:
+    case ZodFirstPartyTypeKind.ZodBigInt:
       return parseBigintDef3(def);
-    case ZodFirstPartyTypeKind$1.ZodBoolean:
+    case ZodFirstPartyTypeKind.ZodBoolean:
       return parseBooleanDef3();
-    case ZodFirstPartyTypeKind$1.ZodDate:
+    case ZodFirstPartyTypeKind.ZodDate:
       return parseDateDef3(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodUndefined:
+    case ZodFirstPartyTypeKind.ZodUndefined:
       return parseUndefinedDef3();
-    case ZodFirstPartyTypeKind$1.ZodNull:
+    case ZodFirstPartyTypeKind.ZodNull:
       return parseNullDef3();
-    case ZodFirstPartyTypeKind$1.ZodArray:
+    case ZodFirstPartyTypeKind.ZodArray:
       return parseArrayDef3(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodUnion:
-    case ZodFirstPartyTypeKind$1.ZodDiscriminatedUnion:
+    case ZodFirstPartyTypeKind.ZodUnion:
+    case ZodFirstPartyTypeKind.ZodDiscriminatedUnion:
       return parseUnionDef3(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodIntersection:
+    case ZodFirstPartyTypeKind.ZodIntersection:
       return parseIntersectionDef3(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodTuple:
+    case ZodFirstPartyTypeKind.ZodTuple:
       return parseTupleDef3(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodRecord:
+    case ZodFirstPartyTypeKind.ZodRecord:
       return parseRecordDef3(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodLiteral:
+    case ZodFirstPartyTypeKind.ZodLiteral:
       return parseLiteralDef3(def);
-    case ZodFirstPartyTypeKind$1.ZodEnum:
+    case ZodFirstPartyTypeKind.ZodEnum:
       return parseEnumDef3(def);
-    case ZodFirstPartyTypeKind$1.ZodNativeEnum:
+    case ZodFirstPartyTypeKind.ZodNativeEnum:
       return parseNativeEnumDef3(def);
-    case ZodFirstPartyTypeKind$1.ZodNullable:
+    case ZodFirstPartyTypeKind.ZodNullable:
       return parseNullableDef3(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodOptional:
+    case ZodFirstPartyTypeKind.ZodOptional:
       return parseOptionalDef3(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodMap:
+    case ZodFirstPartyTypeKind.ZodMap:
       return parseMapDef3(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodSet:
+    case ZodFirstPartyTypeKind.ZodSet:
       return parseSetDef3(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodLazy:
+    case ZodFirstPartyTypeKind.ZodLazy:
       return () => def.getter()._def;
-    case ZodFirstPartyTypeKind$1.ZodPromise:
+    case ZodFirstPartyTypeKind.ZodPromise:
       return parsePromiseDef3(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodNaN:
-    case ZodFirstPartyTypeKind$1.ZodNever:
+    case ZodFirstPartyTypeKind.ZodNaN:
+    case ZodFirstPartyTypeKind.ZodNever:
       return parseNeverDef3();
-    case ZodFirstPartyTypeKind$1.ZodEffects:
+    case ZodFirstPartyTypeKind.ZodEffects:
       return parseEffectsDef3(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodAny:
+    case ZodFirstPartyTypeKind.ZodAny:
       return parseAnyDef3();
-    case ZodFirstPartyTypeKind$1.ZodUnknown:
+    case ZodFirstPartyTypeKind.ZodUnknown:
       return parseUnknownDef3();
-    case ZodFirstPartyTypeKind$1.ZodDefault:
+    case ZodFirstPartyTypeKind.ZodDefault:
       return parseDefaultDef3(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodBranded:
+    case ZodFirstPartyTypeKind.ZodBranded:
       return parseBrandedDef3(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodReadonly:
+    case ZodFirstPartyTypeKind.ZodReadonly:
       return parseReadonlyDef3(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodCatch:
+    case ZodFirstPartyTypeKind.ZodCatch:
       return parseCatchDef3(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodPipeline:
+    case ZodFirstPartyTypeKind.ZodPipeline:
       return parsePipelineDef3(def, refs);
-    case ZodFirstPartyTypeKind$1.ZodFunction:
-    case ZodFirstPartyTypeKind$1.ZodVoid:
-    case ZodFirstPartyTypeKind$1.ZodSymbol:
+    case ZodFirstPartyTypeKind.ZodFunction:
+    case ZodFirstPartyTypeKind.ZodVoid:
+    case ZodFirstPartyTypeKind.ZodSymbol:
       return void 0;
     default:
       return /* @__PURE__ */ ((_) => void 0)();
@@ -20672,14 +21384,14 @@ function zod4Schema2(zodSchema22, options) {
   const useReferences = (_a21 = void 0 ) != null ? _a21 : false;
   return jsonSchema3(
     // defer json schema creation to avoid unnecessary computation when only validation is needed
-    () => z42.toJSONSchema(zodSchema22, {
+    () => toJSONSchema(zodSchema22, {
       target: "draft-7",
       io: "output",
       reused: useReferences ? "ref" : "inline"
     }),
     {
       validate: async (value) => {
-        const result = await z42.safeParseAsync(zodSchema22, value);
+        const result = await safeParseAsync(zodSchema22, value);
         return result.success ? { success: true, value: result.data } : { success: false, error: result.error };
       }
     }
@@ -24481,7 +25193,7 @@ var ToolSummaryProcessor = class extends MemoryProcessor {
   summaryCache = /* @__PURE__ */ new Map();
   constructor({ summaryModel }) {
     super({ name: "ToolSummaryProcessor" });
-    this.summaryAgent = new Agent$1({
+    this.summaryAgent = new Agent({
       name: "ToolSummaryAgent",
       description: "A summary agent that summarizes tool calls and results",
       instructions: "You are a summary agent that summarizes tool calls and results",
@@ -24567,7 +25279,7 @@ var ToolSummaryProcessor = class extends MemoryProcessor {
     return messages;
   }
 };
-var AgentBuilder = class extends Agent$1 {
+var AgentBuilder = class extends Agent {
   builderConfig;
   /**
    * Constructor for AgentBuilder
@@ -24713,7 +25425,7 @@ ${additionalInstructions}`;
     return super.generate(messages, enhancedOptions);
   }
 };
-var cloneTemplateStep = createStep({
+var cloneTemplateStep = createStep$1({
   id: "clone-template",
   description: "Clone the template repository to a temporary directory at the specified ref",
   inputSchema: AgentBuilderInputSchema,
@@ -24754,7 +25466,7 @@ var cloneTemplateStep = createStep({
     }
   }
 });
-var analyzePackageStep = createStep({
+var analyzePackageStep = createStep$1({
   id: "analyze-package",
   description: "Analyze the template package.json to extract dependency information",
   inputSchema: CloneTemplateResultSchema,
@@ -24793,7 +25505,7 @@ var analyzePackageStep = createStep({
     }
   }
 });
-var discoverUnitsStep = createStep({
+var discoverUnitsStep = createStep$1({
   id: "discover-units",
   description: "Discover template units by analyzing the templates directory structure",
   inputSchema: CloneTemplateResultSchema,
@@ -24805,7 +25517,7 @@ var discoverUnitsStep = createStep({
     console.info("targetPath", targetPath);
     const model = await resolveModel({ runtimeContext, projectPath: targetPath, defaultModel: openai("gpt-4.1") });
     try {
-      const agent = new Agent$1({
+      const agent = new Agent({
         model,
         instructions: `You are an expert at analyzing Mastra projects.
 
@@ -24919,7 +25631,7 @@ Return the actual exported names of the units, as well as the file names.`,
     }
   }
 });
-var orderUnitsStep = createStep({
+var orderUnitsStep = createStep$1({
   id: "order-units",
   description: "Sort units in topological order based on kind weights",
   inputSchema: DiscoveryResultSchema,
@@ -24937,7 +25649,7 @@ var orderUnitsStep = createStep({
     };
   }
 });
-var prepareBranchStep = createStep({
+var prepareBranchStep = createStep$1({
   id: "prepare-branch",
   description: "Create or switch to integration branch before modifications",
   inputSchema: PrepareBranchInputSchema,
@@ -24962,7 +25674,7 @@ var prepareBranchStep = createStep({
     }
   }
 });
-var packageMergeStep = createStep({
+var packageMergeStep = createStep$1({
   id: "package-merge",
   description: "Merge template package.json dependencies into target project",
   inputSchema: PackageMergeInputSchema,
@@ -25039,7 +25751,7 @@ var packageMergeStep = createStep({
     }
   }
 });
-var installStep = createStep({
+var installStep = createStep$1({
   id: "install",
   description: "Install packages based on merged package.json",
   inputSchema: InstallInputSchema,
@@ -25067,7 +25779,7 @@ var installStep = createStep({
     }
   }
 });
-var programmaticFileCopyStep = createStep({
+var programmaticFileCopyStep = createStep$1({
   id: "programmatic-file-copy",
   description: "Programmatically copy template files to target project based on ordered units",
   inputSchema: FileCopyInputSchema,
@@ -25419,7 +26131,7 @@ var programmaticFileCopyStep = createStep({
     }
   }
 });
-var intelligentMergeStep = createStep({
+var intelligentMergeStep = createStep$1({
   id: "intelligent-merge",
   description: "Use AgentBuilder to intelligently merge template files",
   inputSchema: IntelligentMergeInputSchema,
@@ -25687,7 +26399,7 @@ Start by listing your tasks and work through them systematically!
     }
   }
 });
-var validationAndFixStep = createStep({
+var validationAndFixStep = createStep$1({
   id: "validation-and-fix",
   description: "Validate the merged template code and fix any issues using a specialized agent",
   inputSchema: ValidationFixInputSchema,
@@ -25717,7 +26429,7 @@ var validationAndFixStep = createStep({
     try {
       const model = await resolveModel({ runtimeContext, projectPath: targetPath, defaultModel: openai("gpt-4.1") });
       const allTools = await AgentBuilderDefaults.getToolsForMode(targetPath, "template");
-      const validationAgent = new Agent$1({
+      const validationAgent = new Agent({
         name: "code-validator-fixer",
         description: "Specialized agent for validating and fixing template integration issues",
         instructions: `You are a code validation and fixing specialist. Your job is to:
@@ -25953,7 +26665,7 @@ Previous iterations may have fixed some issues, so start by re-running validateC
     }
   }
 });
-var agentBuilderTemplateWorkflow = createWorkflow({
+var agentBuilderTemplateWorkflow = createWorkflow$1({
   id: "agent-builder-template",
   description: "Merges a Mastra template repository into the current project using intelligent AgentBuilder-powered merging",
   inputSchema: AgentBuilderInputSchema,
@@ -26404,7 +27116,7 @@ var TaskApprovalResumeSchema = z.object({
   approved: z.boolean(),
   modifications: z.string().optional()
 });
-var planningIterationStep = createStep({
+var planningIterationStep = createStep$1({
   id: "planning-iteration",
   description: "Create or refine task plan with user input",
   inputSchema: PlanningIterationInputSchema,
@@ -26441,7 +27153,7 @@ var planningIterationStep = createStep({
     }
     try {
       const model = await resolveModel({ runtimeContext });
-      const planningAgent = new Agent$1({
+      const planningAgent = new Agent({
         model,
         instructions: taskPlanningPrompts.planningAgent.instructions({
           storedQAPairs
@@ -26543,7 +27255,7 @@ var planningIterationStep = createStep({
     }
   }
 });
-var taskApprovalStep = createStep({
+var taskApprovalStep = createStep$1({
   id: "task-approval",
   description: "Get user approval for the final task list",
   inputSchema: PlanningIterationResultSchema,
@@ -26583,7 +27295,7 @@ ${tasks.map((task, i) => `${i + 1}. [${task.priority.toUpperCase()}] ${task.cont
     }
   }
 });
-var planningAndApprovalWorkflow = createWorkflow({
+var planningAndApprovalWorkflow = createWorkflow$1({
   id: "planning-and-approval",
   description: "Handle iterative planning with questions and task list approval",
   inputSchema: PlanningIterationInputSchema,
@@ -27035,7 +27747,7 @@ var restrictedTaskManager = createTool({
     return await AgentBuilderDefaults.manageTaskList(adaptedContext);
   }
 });
-var workflowDiscoveryStep = createStep({
+var workflowDiscoveryStep = createStep$1({
   id: "workflow-discovery",
   description: "Discover existing workflows in the project",
   inputSchema: WorkflowBuilderInputSchema,
@@ -27094,7 +27806,7 @@ var workflowDiscoveryStep = createStep({
     }
   }
 });
-var projectDiscoveryStep = createStep({
+var projectDiscoveryStep = createStep$1({
   id: "project-discovery",
   description: "Analyze the project structure and setup",
   inputSchema: WorkflowDiscoveryResultSchema,
@@ -27156,7 +27868,7 @@ var projectDiscoveryStep = createStep({
     }
   }
 });
-var workflowResearchStep = createStep({
+var workflowResearchStep = createStep$1({
   id: "workflow-research",
   description: "Research Mastra workflows and gather relevant documentation",
   inputSchema: ProjectDiscoveryResultSchema,
@@ -27165,7 +27877,7 @@ var workflowResearchStep = createStep({
     console.info("Starting workflow research...");
     try {
       const model = await resolveModel({ runtimeContext });
-      const researchAgent = new Agent$1({
+      const researchAgent = new Agent({
         model,
         instructions: workflowBuilderPrompts.researchAgent.instructions,
         name: "Workflow Research Agent"
@@ -27221,7 +27933,7 @@ var workflowResearchStep = createStep({
     }
   }
 });
-var taskExecutionStep = createStep({
+var taskExecutionStep = createStep$1({
   id: "task-execution",
   description: "Execute the approved task list to create or edit the workflow",
   inputSchema: TaskExecutionInputSchema,
@@ -27439,7 +28151,7 @@ ${workflowBuilderPrompts.validation.instructions}`;
     }
   }
 });
-var workflowBuilderWorkflow = createWorkflow({
+var workflowBuilderWorkflow = createWorkflow$1({
   id: "workflow-builder",
   description: "Create or edit Mastra workflows using AI-powered assistance with iterative planning",
   inputSchema: WorkflowBuilderInputSchema,
@@ -32984,7 +33696,7 @@ async function generateSystemPromptHandler(c2) {
             Remember: A good system prompt should be specific enough to guide behavior but flexible enough to handle edge cases. 
             Focus on creating prompts that are clear, actionable, and aligned with the intended use case.
         `;
-    const systemPromptAgent = new Agent$1({
+    const systemPromptAgent = new Agent({
       name: "system-prompt-enhancer",
       instructions: ENHANCE_SYSTEM_PROMPT_INSTRUCTIONS,
       model: agent.llm?.getModel()
@@ -42187,55 +42899,51 @@ async function createNodeServer(mastra, options = { tools: {} }) {
 }
 
 // @ts-ignore
-// @ts-ignore
-// @ts-ignore
-await createNodeServer(mastra, {
-  playground: true,
-  isDev: true,
-  tools: getToolExports(tools),
-});
+    await createNodeServer(mastra, { tools: getToolExports(tools) });
 
-registerHook(AvailableHooks.ON_GENERATION, ({ input, output, metric, runId, agentName, instructions }) => {
-  evaluate({
-    agentName,
-    input,
-    metric,
-    output,
-    runId,
-    globalRunId: runId,
-    instructions,
-  });
-});
-
-if (mastra.getStorage()) {
-  mastra.__registerInternalWorkflow(scoreTracesWorkflow);
-}
-
-registerHook(AvailableHooks.ON_EVALUATION, async traceObject => {
-  const storage = mastra.getStorage();
-  if (storage) {
-    // Check for required fields
-    const logger = mastra?.getLogger();
-    const areFieldsValid = checkEvalStorageFields(traceObject, logger);
-    if (!areFieldsValid) return;
-
-    await storage.insert({
-      tableName: TABLE_EVALS,
-      record: {
-        input: traceObject.input,
-        output: traceObject.output,
-        result: JSON.stringify(traceObject.result || {}),
-        agent_name: traceObject.agentName,
-        metric_name: traceObject.metricName,
-        instructions: traceObject.instructions,
-        test_info: null,
-        global_run_id: traceObject.globalRunId,
-        run_id: traceObject.runId,
-        created_at: new Date().toISOString(),
-      },
+    registerHook(AvailableHooks.ON_GENERATION, ({ input, output, metric, runId, agentName, instructions }) => {
+      evaluate({
+        agentName,
+        input,
+        metric,
+        output,
+        runId,
+        globalRunId: runId,
+        instructions,
+      });
     });
-  }
-});
+
+    if (mastra.getStorage()) {
+      // start storage init in the background
+      mastra.getStorage().init();
+      mastra.__registerInternalWorkflow(scoreTracesWorkflow);
+    }
+
+    registerHook(AvailableHooks.ON_EVALUATION, async traceObject => {
+      const storage = mastra.getStorage();
+      if (storage) {
+        // Check for required fields
+        const logger = mastra?.getLogger();
+        const areFieldsValid = checkEvalStorageFields(traceObject, logger);
+        if (!areFieldsValid) return;
+
+        await storage.insert({
+          tableName: TABLE_EVALS,
+          record: {
+            input: traceObject.input,
+            output: traceObject.output,
+            result: JSON.stringify(traceObject.result || {}),
+            agent_name: traceObject.agentName,
+            metric_name: traceObject.metricName,
+            instructions: traceObject.instructions,
+            test_info: null,
+            global_run_id: traceObject.globalRunId,
+            run_id: traceObject.runId,
+            created_at: new Date().toISOString(),
+          },
+        });
+      }
+    });
 
 var distYREX2TJT = /*#__PURE__*/Object.freeze({
   __proto__: null,
