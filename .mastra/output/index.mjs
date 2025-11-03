@@ -5,7 +5,7 @@ import { scoreTraces, scoreTracesWorkflow } from '@mastra/core/scores/scoreTrace
 import { generateEmptyFromSchema, checkEvalStorageFields } from '@mastra/core/utils';
 import { Agent, Mastra } from '@mastra/core';
 import { google } from '@ai-sdk/google';
-import { analyzeTranscript } from './tools/1bc2c94b-9147-49e0-a7cb-5167d6ab3a97.mjs';
+import { analyzeTranscript } from './tools/1e8210d7-65ed-46b2-abb1-5098c684d4bc.mjs';
 import { LibSQLStore } from '@mastra/libsql';
 import crypto$1, { randomUUID } from 'crypto';
 import { readdir, readFile, mkdtemp, rm, writeFile, mkdir, copyFile, stat } from 'fs/promises';
@@ -73,7 +73,12 @@ const mastra = new Mastra({
   },
   storage: new LibSQLStore({
     url: ":memory:"
-  })
+  }),
+  observability: {
+    default: {
+      enabled: true
+    }
+  }
 });
 
 // src/utils/mime.ts

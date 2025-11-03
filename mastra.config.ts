@@ -3,11 +3,11 @@ import { LibSQLStore } from "@mastra/libsql";
 
 export default defineConfig({
   server: {
-    port: parseInt(process.env.PORT || "4111"),
     host: "0.0.0.0",
+    // Removed custom port to use Mastra's default (4111)
   },
-  telemetry: {
-    enabled: false,
+  observability: {
+    default: { enabled: true }, // Enables DefaultExporter and CloudExporter
   },
   storage: new LibSQLStore({
     url: ":memory:", // In-memory storage for local testing

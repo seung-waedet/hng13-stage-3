@@ -57,7 +57,12 @@ const mastra = new Mastra({
   },
   storage: new LibSQLStore({
     url: ":memory:"
-  })
+  }),
+  observability: {
+    default: {
+      enabled: true
+    }
+  }
 });
 
 export { mastra };
