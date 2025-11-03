@@ -36,7 +36,7 @@ const analyzeTranscript = {
 // ============================================
 // 2. CREATE THE MASTRA AGENT
 // ============================================
-const transcriptAgent = new Agent({
+export const transcriptAgent = new Agent({
   name: "Meeting Transcript Analyzer",
   instructions: `You are a professional meeting analyst. Your task is to analyze meeting transcripts and provide:
 
@@ -82,5 +82,3 @@ export const mastra = new Mastra({
     url: ":memory:", // In-memory storage for local testing (non-persistent)
   }),
 });
-
-export { transcriptAgent };
