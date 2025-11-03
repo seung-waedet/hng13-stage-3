@@ -5,7 +5,9 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "mastra dev",
-    "build": "mastra build"
+    "build": "mastra build",
+    "start": "mastra serve",
+    "deploy": "mastra deploy"
   },
   "keywords": [
     "a2a",
