@@ -73,6 +73,7 @@ export const mastra = new Mastra({
     transcriptAgent,
   },
   server: {
+    host: process.env.HOST || "0.0.0.0",
     port: 4111,
   },
   telemetry: {
