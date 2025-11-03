@@ -1,5 +1,14 @@
 import { w as withoutTrailingSlash, i as generateId, l as loadApiKey, T as TooManyEmbeddingValuesForCallError, c as combineHeaders, b as resolve, d as postJsonToApi, p as parseProviderOptions, e as createJsonResponseHandler, f as createEventSourceResponseHandler, U as UnsupportedFunctionalityError, g as convertUint8ArrayToBase64, h as createJsonErrorResponseHandler } from './index.mjs';
-import { z } from './mastra.mjs';
+import { z } from 'zod';
+import '@mastra/core/eval';
+import '@mastra/core/hooks';
+import '@mastra/core/storage';
+import '@mastra/core/scores/scoreTraces';
+import '@mastra/core/utils';
+import '@mastra/core';
+import '@ai-sdk/google';
+import './tools/1bc2c94b-9147-49e0-a7cb-5167d6ab3a97.mjs';
+import '@mastra/libsql';
 import 'crypto';
 import 'fs/promises';
 import 'https';
@@ -9,15 +18,27 @@ import 'http2';
 import 'stream';
 import 'fs';
 import 'path';
+import '@mastra/core/runtime-context';
+import '@mastra/core/telemetry';
+import '@mastra/core/tools';
+import '@mastra/core/error';
+import '@mastra/core/llm';
+import '@mastra/core/stream';
+import '@mastra/core/agent';
 import 'util';
 import 'buffer';
+import '@mastra/core/ai-tracing';
+import '@mastra/core/utils/zod-to-json';
+import '@mastra/core/a2a';
 import 'stream/web';
+import '@mastra/core/memory';
+import 'zod/v4';
+import 'zod/v3';
 import 'child_process';
 import 'module';
 import 'os';
+import '@mastra/core/workflows';
 import './tools.mjs';
-import 'events';
-import '@libsql/client';
 
 function convertJSONSchemaToOpenAPISchema(jsonSchema) {
   if (isEmptyObjectSchema(jsonSchema)) {

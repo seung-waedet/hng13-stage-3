@@ -1,23 +1,22 @@
 # Meeting Transcript Analyzer
 
-An A2A (Agent-to-Agent) protocol agent that analyzes meeting transcripts to extract summaries, action items, and key decisions. Built with Mastra, Express, and Google Gemini AI.
+An intelligent meeting transcript analysis assistant powered by Mastra AI
 
----
+## Features
 
-## What It Does
+- 🤖 **AI-Powered Analysis**: Leverages Google Gemini 2.5 Flash for intelligent meeting insights
+- 📝 **Transcript Processing**: Extracts key information from meeting transcripts
+- 📋 **Action Item Extraction**: Identifies and lists action items from discussions
+- 💬 **Natural Conversation**: Chat naturally with the agent to analyze meeting transcripts
+- 🧠 **Memory System**: Maintains conversation context using LibSQL storage
+- 🌐 **Agent-to-Agent Protocol**: Supports A2A communication via JSON-RPC 2.0
 
-This agent accepts raw meeting transcripts and returns:
+## Getting Started
 
-- **Concise Summary**: 2-3 paragraph overview of key discussion points
-- **Action Items**: Checkbox list of tasks with responsible parties
-- **Key Decisions**: Important decisions made during the meeting
-- **Topics**: Main discussion themes
+### Prerequisites
 
----
-
-## Quick Start
-
-### 1. Clone and Install
+- Node.js: Version 20.9.0 or higher
+- pnpm: Package manager (recommended for faster installs)
 
 ```bash
 git clone https://github.com/seung-waedet/hng13-stage-3

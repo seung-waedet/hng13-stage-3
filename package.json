@@ -12,7 +12,6 @@
   "keywords": [
     "a2a",
     "mastra",
-    "telex",
     "meeting",
     "transcript"
   ],
@@ -24,6 +23,7 @@
     "@mastra/libsql": "^0.16.1",
     "ai": "^5.0.86",
     "dotenv": "^16.3.1",
+    "hono": "^3.12.0",
     "mastra": "^0.17.7",
     "zod": "^3.25.76"
   },

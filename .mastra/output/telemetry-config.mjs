@@ -1,6 +1,3 @@
-const telemetry = {
-  enabled: false
-  // Disable telemetry to avoid the bundling issue
-};
+const telemetry = {};
 
 export { telemetry };
