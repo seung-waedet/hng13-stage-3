@@ -4,9 +4,10 @@ import { TABLE_EVALS } from '@mastra/core/storage';
 import { scoreTraces, scoreTracesWorkflow } from '@mastra/core/scores/scoreTraces';
 import { generateEmptyFromSchema, checkEvalStorageFields } from '@mastra/core/utils';
 import { Agent, Mastra } from '@mastra/core';
-import { google } from '@ai-sdk/google';
-import { analyzeTranscript } from './tools/1e8210d7-65ed-46b2-abb1-5098c684d4bc.mjs';
 import { LibSQLStore } from '@mastra/libsql';
+import { Memory as Memory$1 } from '@mastra/memory';
+import { transcriptTool } from './tools/3a3228af-fbcb-4ab1-b5f4-d6081944bdfa.mjs';
+import { registerApiRoute } from '@mastra/core/server';
 import crypto$1, { randomUUID } from 'crypto';
 import { readdir, readFile, mkdtemp, rm, writeFile, mkdir, copyFile, stat } from 'fs/promises';
 import * as https from 'https';
@@ -40,14 +41,25 @@ import { tmpdir } from 'os';
 import { createWorkflow, createStep } from '@mastra/core/workflows';
 import { tools } from './tools.mjs';
 
+const DEFAULT_TRANSCRIPT_AGENT_NAME = "Meeting Transcript Analyzer";
 const transcriptAgent = new Agent({
-  name: "Meeting Transcript Analyzer",
-  instructions: `You are a professional meeting analyst. Your task is to analyze meeting transcripts and provide:
+  name: DEFAULT_TRANSCRIPT_AGENT_NAME,
+  instructions: `You are a professional meeting analyst that provides insights and analysis on meeting transcripts.
 
-1. **Concise Summary**: A brief 2-3 paragraph summary of the meeting's main points
-2. **Action Items**: A clear list of action items extracted from the discussion
+Your primary function is to help users understand meeting content by extracting key information. When responding:
 
-Format your response EXACTLY as follows:
+- Always ask for a meeting transcript if none is provided
+- If the transcript is too short or unclear, please inform the user
+- Keep responses concise but informative
+- Use the transcriptTool to analyze transcript data
+- If the user asks for specific insights, provide them based on the transcript content
+- If the user asks for action items, extract them clearly with responsible parties when mentioned
+- Be friendly and professional in your responses
+- Make sure to give reasonable insights based on the data you have
+- Don't make up data or insights that you cannot support with the transcript content
+- Provide a summary of key insights at the end
+
+Format your response as:
 
 ## Meeting Summary
 [2-3 paragraphs summarizing the key discussion points, decisions made, and main topics covered]
@@ -60,10 +72,137 @@ Format your response EXACTLY as follows:
 ## Key Decisions
 [List any important decisions made during the meeting]
 
-Be concise but comprehensive. Focus on actionable insights.`,
-  model: google("gemini-2.5-flash"),
-  tools: {
-    analyzeTranscript
+Use the transcriptTool to analyze transcript data.`,
+  model: "google/gemini-2.5-flash",
+  tools: { transcriptTool },
+  memory: new Memory$1({
+    storage: new LibSQLStore({
+      url: "file:../mastra.db"
+    })
+  })
+});
+
+const a2aAgentRoute = registerApiRoute("/a2a/agent/:agentId", {
+  method: "POST",
+  handler: async (c) => {
+    try {
+      const mastra = c.get("mastra");
+      const agentId = c.req.param("agentId");
+      const body = await c.req.json();
+      const { jsonrpc, id: requestId, params } = body;
+      if (jsonrpc !== "2.0" || !requestId) {
+        return c.json(
+          {
+            jsonrpc: "2.0",
+            id: requestId || null,
+            error: {
+              code: -32600,
+              message: 'Invalid Request: jsonrpc must be "2.0" and id is required'
+            }
+          },
+          400
+        );
+      }
+      const agent = mastra.getAgent(agentId);
+      if (!agent) {
+        return c.json(
+          {
+            jsonrpc: "2.0",
+            id: requestId,
+            error: {
+              code: -32602,
+              message: `Agent '${agentId}' not found`
+            }
+          },
+          404
+        );
+      }
+      const { message, messages, contextId, taskId} = params || {};
+      let messagesList = [];
+      if (message) {
+        messagesList = [message];
+      } else if (messages && Array.isArray(messages)) {
+        messagesList = messages;
+      }
+      const mastraMessages = messagesList.map((msg) => ({
+        role: msg.role,
+        content: msg.parts?.map((part) => {
+          if (part.kind === "text") return part.text;
+          if (part.kind === "data") return JSON.stringify(part.data);
+          return "";
+        }).join("\n") || ""
+      }));
+      const response = await agent.generate(mastraMessages);
+      const agentText = response.text || "";
+      const artifacts = [
+        {
+          artifactId: randomUUID(),
+          name: `${agentId}Response`,
+          parts: [{ kind: "text", text: agentText }]
+        }
+      ];
+      if (response.toolResults && response.toolResults.length > 0) {
+        artifacts.push({
+          artifactId: randomUUID(),
+          name: "ToolResults",
+          // @ts-ignore
+          parts: response.toolResults.map((result) => ({
+            kind: "data",
+            data: result
+          }))
+        });
+      }
+      const history = [
+        ...messagesList.map((msg) => ({
+          kind: "message",
+          role: msg.role,
+          parts: msg.parts,
+          messageId: msg.messageId || randomUUID(),
+          taskId: msg.taskId || taskId || randomUUID()
+        })),
+        {
+          kind: "message",
+          role: "agent",
+          parts: [{ kind: "text", text: agentText }],
+          messageId: randomUUID(),
+          taskId: taskId || randomUUID()
+        }
+      ];
+      return c.json({
+        jsonrpc: "2.0",
+        id: requestId,
+        result: {
+          id: taskId || randomUUID(),
+          contextId: contextId || randomUUID(),
+          status: {
+            state: "completed",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            message: {
+              messageId: randomUUID(),
+              role: "agent",
+              parts: [{ kind: "text", text: agentText }],
+              kind: "message"
+            }
+          },
+          artifacts,
+          history,
+          kind: "task"
+        }
+      });
+    } catch (error) {
+      return c.json(
+        {
+          jsonrpc: "2.0",
+          id: null,
+          error: {
+            code: -32603,
+            message: "Internal error",
+            data: { details: error.message }
+          }
+        },
+        500
+      );
+    }
   }
 });
 
@@ -72,9 +211,18 @@ const mastra = new Mastra({
     transcriptAgent
   },
   storage: new LibSQLStore({
+    // stores observability, scores, ... into memory storage, if it needs to persist, change to file:../mastra.db
     url: ":memory:"
   }),
+  server: {
+    apiRoutes: [a2aAgentRoute]
+  },
+  telemetry: {
+    // Telemetry is deprecated and will be removed in the Nov 4th release
+    enabled: false
+  },
   observability: {
+    // Enables DefaultExporter and CloudExporter for AI tracing
     default: {
       enabled: true
     }

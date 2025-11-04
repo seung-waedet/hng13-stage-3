@@ -1,16 +1,28 @@
 import { Agent } from "@mastra/core";
-import { google } from "@ai-sdk/google";
-import { analyzeTranscript } from "../tools/transcript-tools";
+import { Memory } from "@mastra/memory";
+import { LibSQLStore } from "@mastra/libsql";
+import { transcriptTool } from "../tools/transcript-tools";
 
-// Create the transcript analysis agent
+const DEFAULT_TRANSCRIPT_AGENT_NAME = "Meeting Transcript Analyzer";
+
 export const transcriptAgent = new Agent({
-  name: "Meeting Transcript Analyzer",
-  instructions: `You are a professional meeting analyst. Your task is to analyze meeting transcripts and provide:
+  name: DEFAULT_TRANSCRIPT_AGENT_NAME,
+  instructions: `You are a professional meeting analyst that provides insights and analysis on meeting transcripts.
 
-1. **Concise Summary**: A brief 2-3 paragraph summary of the meeting's main points
-2. **Action Items**: A clear list of action items extracted from the discussion
+Your primary function is to help users understand meeting content by extracting key information. When responding:
 
-Format your response EXACTLY as follows:
+- Always ask for a meeting transcript if none is provided
+- If the transcript is too short or unclear, please inform the user
+- Keep responses concise but informative
+- Use the transcriptTool to analyze transcript data
+- If the user asks for specific insights, provide them based on the transcript content
+- If the user asks for action items, extract them clearly with responsible parties when mentioned
+- Be friendly and professional in your responses
+- Make sure to give reasonable insights based on the data you have
+- Don't make up data or insights that you cannot support with the transcript content
+- Provide a summary of key insights at the end
+
+Format your response as:
 
 ## Meeting Summary
 [2-3 paragraphs summarizing the key discussion points, decisions made, and main topics covered]
@@ -23,10 +35,13 @@ Format your response EXACTLY as follows:
 ## Key Decisions
 [List any important decisions made during the meeting]
 
-Be concise but comprehensive. Focus on actionable insights.`,
+Use the transcriptTool to analyze transcript data.`,
 
-  model: google("gemini-2.5-flash"),
-  tools: {
-    analyzeTranscript
-  },
+  model: "google/gemini-2.5-flash",
+  tools: { transcriptTool },
+  memory: new Memory({
+    storage: new LibSQLStore({
+      url: "file:../mastra.db",
+    }),
+  }),
 });

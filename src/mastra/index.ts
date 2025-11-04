@@ -1,16 +1,25 @@
 import { Mastra } from "@mastra/core";
-import { transcriptAgent } from "./agents/transcript-agent";
 import { LibSQLStore } from "@mastra/libsql";
+import { transcriptAgent } from "./agents/transcript-agent";
+import { a2aAgentRoute } from "./routes/a2aRoute";
 
-// Initialize Mastra with our agent - export as named export 'mastra' as required by CLI
 export const mastra = new Mastra({
-  agents: {
-    transcriptAgent
+  agents: { 
+    transcriptAgent: transcriptAgent 
   },
   storage: new LibSQLStore({
-    url: ":memory:"
+    // stores observability, scores, ... into memory storage, if it needs to persist, change to file:../mastra.db
+    url: ":memory:",
   }),
+  server: {
+    apiRoutes: [a2aAgentRoute],
+  },
+  telemetry: {
+    // Telemetry is deprecated and will be removed in the Nov 4th release
+    enabled: false,
+  },
   observability: {
-    default: { enabled: true }
-  }
+    // Enables DefaultExporter and CloudExporter for AI tracing
+    default: { enabled: true },
+  },
 });

@@ -1,22 +1,46 @@
-# Meeting Transcript Analyzer
+# 📝 Meeting Transcript Analyzer
 
-An intelligent meeting transcript analysis assistant powered by Mastra AI
+**An intelligent meeting transcript analysis assistant powered by Mastra AI**
 
-## Features
+Meeting Transcript Analyzer is an AI-powered agent that provides deep insights into meeting transcripts, extracting summaries, action items, key decisions, and participant information. Built with Mastra.ai framework, it uses Google's Gemini 2.5 Flash model to deliver intelligent transcript analysis through natural conversation.
+
+## ✨ Features
 
 - 🤖 **AI-Powered Analysis**: Leverages Google Gemini 2.5 Flash for intelligent meeting insights
 - 📝 **Transcript Processing**: Extracts key information from meeting transcripts
-- 📋 **Action Item Extraction**: Identifies and lists action items from discussions
+- 📋 **Action Item Extraction**: Identifies and lists action items with responsible parties
+- 🎯 **Key Decision Tracking**: Captures important decisions made during meetings
+- 👥 **Participant Identification**: Automatically identifies meeting participants
 - 💬 **Natural Conversation**: Chat naturally with the agent to analyze meeting transcripts
 - 🧠 **Memory System**: Maintains conversation context using LibSQL storage
-- 🌐 **Agent-to-Agent Protocol**: Supports A2A communication via JSON-RPC 2.0
+- 🌐 **Agent-to-Agent Protocol**: Supports A2A (Agent-to-Agent) communication via JSON-RPC 2.0
+- 📊 **Observability**: Built-in AI tracing and monitoring
 
-## Getting Started
+## 🏗️ Architecture
+
+The project is structured around the Mastra framework:
+
+```
+src/mastra/
+├── index.ts                    # Main Mastra configuration
+├── agents/
+│   └── transcript-agent.ts     # Meeting transcript analysis agent
+├── tools/
+│   └── transcript-tools.ts     # Transcript processing tools
+├── routes/
+│   └── a2aRoute.ts            # Agent-to-Agent API endpoint
+├── utils/
+│   └── definitions.ts         # TypeScript type definitions
+└── workflows/
+    └── transcript-workflow.ts  # Analysis workflows (future use)
+```
+
+## 🚀 Getting Started
 
 ### Prerequisites
 
-- Node.js: Version 20.9.0 or higher
-- pnpm: Package manager (recommended for faster installs)
+- **Node.js**: Version 20.9.0 or higher
+- **pnpm**: Package manager (recommended for faster installs)
 
 ```bash
 git clone https://github.com/seung-waedet/hng13-stage-3

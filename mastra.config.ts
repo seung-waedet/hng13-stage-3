@@ -1,15 +1,27 @@
-import { defineConfig } from "@mastra/core";
+import { Mastra } from "@mastra/core";
 import { LibSQLStore } from "@mastra/libsql";
+import { transcriptAgent } from "./src/mastra/agents/transcript-agent";
+import { a2aAgentRoute } from "./src/mastra/routes/a2aRoute";
 
-export default defineConfig({
-  server: {
-    host: "0.0.0.0",
-    // Removed custom port to use Mastra's default (4111)
-  },
-  observability: {
-    default: { enabled: true }, // Enables DefaultExporter and CloudExporter
+export const mastra = new Mastra({
+  agents: { 
+    transcriptAgent: transcriptAgent 
   },
   storage: new LibSQLStore({
-    url: ":memory:", // In-memory storage for local testing
+    // stores observability, scores, ... into memory storage, if it needs to persist, change to file:../mastra.db
+    url: ":memory:",
   }),
+  server: {
+    apiRoutes: [a2aAgentRoute],
+  },
+  telemetry: {
+    // Telemetry is deprecated and will be removed in the Nov 4th release
+    enabled: false,
+  },
+  observability: {
+    // Enables DefaultExporter and CloudExporter for AI tracing
+    default: { enabled: true },
+  },
 });
+
+export default mastra;

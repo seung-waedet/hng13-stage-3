@@ -1,32 +1,53 @@
-// TypeScript type definitions for the project
-
-// Transcript analysis result type
-export interface TranscriptAnalysisResult {
-  transcript: string;
-  length: number;
+// Meeting transcript analysis types
+export type TranscriptAnalysis = {
+  summary: string;
+  actionItems: string[];
+  keyDecisions: string[];
+  participants: string[];
   wordCount: number;
-}
+  duration?: string;
+  topics: string[];
+  analysisTimestamp: string;
+};
 
-// Error response type
-export interface ErrorResponse {
-  error: string;
-}
+export type MeetingMetadata = {
+  title?: string;
+  date?: string;
+  duration?: string;
+  attendees?: string[];
+  meetingType?: string;
+  location?: string;
+};
 
-// A2A message format
-export interface A2AMessage {
-  role: string;
-  parts: Array<{
-    kind: string;
-    text: string;
-  }>;
-}
+export type TranscriptSegment = {
+  speaker?: string;
+  timestamp?: string;
+  content: string;
+  duration?: number;
+};
 
-// A2A request format (JSON-RPC 2.0)
-export interface A2ARequest {
-  jsonrpc: string;
+export type ActionItem = {
   id: string;
-  method: string;
-  params: {
-    message: A2AMessage;
-  };
-}
+  description: string;
+  assignee?: string;
+  dueDate?: string;
+  priority?: 'high' | 'medium' | 'low';
+  status?: 'pending' | 'in-progress' | 'completed';
+};
+
+export type KeyDecision = {
+  id: string;
+  decision: string;
+  context?: string;
+  participants?: string[];
+  timestamp?: string;
+  impact?: string;
+};
+
+export type MeetingInsights = {
+  participationLevel: 'high' | 'medium' | 'low';
+  sentimentAnalysis?: 'positive' | 'neutral' | 'negative';
+  keyTopics: string[];
+  followUpRequired: boolean;
+  meetingEffectiveness?: number; // 1-10 scale
+};
